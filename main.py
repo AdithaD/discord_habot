@@ -180,8 +180,10 @@ async def list_habits(interaction: discord.Interaction):
             await interaction.response.send_message("You have no habits.")
             return
         else:
-            joined_habits = ", ".join([f"\"{habit['name']}\", repeating {Timing(habit['repeat']).name}. Current streak is {habit['streak']}.\n" for habit in habits_list])
+            joined_habits = ", ".join([f"\"{habit['name']}\", repeating {Timing(habit['repeat']).name}. Current streak is {habit['streak']}. {'Checked in' if habit['has_checked_in'] else 'Not checked in'}.\n" for habit in habits_list])
 
+
+            interaction.response.send
             await interaction.response.send_message(f"Your habits are: \n{joined_habits}")
     except Exception as e:
         print(e)
@@ -216,10 +218,15 @@ async def check_in(interaction: discord.Interaction, habit_name: str):
                 }, "$inc": {"streak": 1}})
 
                 # Add check in streaks.
+                new_streak = habit["streak"] + 1
 
-                await interaction.response.send_message(f"Successfully checked in for {habit_name}.")
-                if habit["streak"] > 0 and habit["streak"] % 5 == 0:
-                    await interaction.response.send_message(f"You reached a streak of {habit['streak']} for {habit_name} 🔥.")
+                message = f"Successfully checked in for {habit_name}."
+                
+                if new_streak > 0 and new_streak % 5 == 0:
+
+                    message += f" You reached a streak of {new_streak} for {habit_name} 🔥."
+
+                await interaction.response.send_message(message)
 
     except Exception as e:
         print(e)
