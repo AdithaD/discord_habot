@@ -9,61 +9,15 @@ from discord.ext import commands, tasks
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 
-
 # loads environment variables from file
 load_dotenv()
 
 # sets the GUILD_ID environment variable for the testing server
 MY_GUILD = discord.Object(id=os.environ['GUILD_ID'])
 
-# client wrapper class for the habot client of the discord.py Client
-class HabotClient(discord.Client):
-    def __init__(self, intents: discord.Intents, client: MongoClient):
-        super().__init__(intents=intents)
-
-        self.db = client['user-data']
-
-        self.tree = app_commands.CommandTree(self);
-
-    def on_ready(self):
-        print(f'We have logged in as {self.user}')
-    
-    async def setup_hook(self):
-        self.tree.copy_global_to(guild=MY_GUILD)
-        await self.tree.sync(guild=MY_GUILD)
-
-        self.check_habits.start()
-
-    @tasks.loop(minutes=1)
-    async def check_habits(self):
-        print("Checking habits...")
-        
-        # get all the habits
-        all_habits = list(self.db['habits'].find())
-
-        for habit in all_habits:
-            if not datetime.now() > habit['due_date']:
-               continue 
-            
-            # see if there is a check in within the habit's repeat cycle
-            
-            if not habit['has_checked_in']:
-                print(habit['channel_id'])
-                channel = self.get_channel(int(habit['channel_id']))
-                user = self.get_user(int(habit['user_id']))
-                await channel.send(f"Shame {user.mention} for not doing {habit['name']}.")
-
-            # update due date
-
-            new_date = Timing(habit['repeat']).next_timing(habit['due_date'])
-            self.db['habits'].update_one({"name": habit['name'], "user_id": habit['user_id']}, {"$set": {"due_date": new_date, "has_checked_in": False}})
-
-
-    @check_habits.before_loop
-    async def before_my_task(self):
-        await self.wait_until_ready() 
-
 # enum for the repeat of the habit
+
+
 class Timing(enum.Enum):
     Minutely = 0
     Hourly = 1
@@ -83,9 +37,68 @@ class Timing(enum.Enum):
                 return current_time + timedelta(weeks=1)
             case Timing.Monthly:
                 return current_time + timedelta(months=1)
-    
+
+# client wrapper class for the habot client of the discord.py Client
+
+
+class HabotClient(discord.Client):
+    def __init__(self, intents: discord.Intents, client: MongoClient):
+        super().__init__(intents=intents)
+
+        self.db = client['user-data']
+
+        self.tree = app_commands.CommandTree(self)
+
+    def on_ready(self):
+        print(f'We have logged in as {self.user}')
+
+    async def setup_hook(self):
+        self.tree.copy_global_to(guild=MY_GUILD)
+        await self.tree.sync(guild=MY_GUILD)
+
+        self.check_habits.start()
+
+    @tasks.loop(minutes=1)
+    async def check_habits(self):
+        print("Checking habits...")
+
+        # get all the habits
+        all_habits = list(self.db['habits'].find())
+
+        for habit in all_habits:
+            if not datetime.now() > habit['due_date']:
+                continue
+
+            # see if there is a check in within the habit's repeat cycle
+
+            streak = habit['streak']
+
+            if not habit['has_checked_in']:
+                channel = self.get_channel(int(habit['channel_id']))
+                user = self.get_user(int(habit['user_id']))
+                await channel.send(f"Shame {user.mention} for not doing {habit['name']}.")
+
+                if habit['streak'] > 0:
+                    await channel.send(f"You lost your streak of {habit['streak']} for {habit['name']} by not doing it.")
+                    streak = 0
+                # update due date
+
+            new_date = Timing(habit['repeat']).next_timing(habit['due_date'])
+            self.db['habits'].update_one({"name": habit['name'], "user_id": habit['user_id']}, {
+                                         "$set": {
+                                             "due_date": new_date,
+                                             "has_checked_in": False,
+                                             "streak": streak,
+                                         }})
+
+    @check_habits.before_loop
+    async def before_my_task(self):
+        await self.wait_until_ready()
+
+
 # establishes the connection to the database
-mongo_client = MongoClient(os.environ['CONNECTION_STRING'], server_api=ServerApi('1'))
+mongo_client = MongoClient(
+    os.environ['CONNECTION_STRING'], server_api=ServerApi('1'))
 user_db = mongo_client["user-data"]
 # Send a ping to confirm a successful connection
 try:
@@ -101,6 +114,7 @@ intents.members = True
 
 client = HabotClient(intents=intents, client=mongo_client)
 
+
 @client.event
 async def on_ready():
     print(f'We have logged in as {client.user}')
@@ -109,17 +123,20 @@ async def on_ready():
 @client.tree.command()
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message('Pong!')
-    
+
+
 @client.tree.command()
 @app_commands.describe(
     habit_name="The name of the habit",
     repeat="How often to do the habit",
-                       )
+)
 async def add_habit(interaction: discord.Interaction, habit_name: str, repeat: Timing):
     user = interaction.user
-    
+
     # Add habit to the database.
     habit_collection = user_db["habits"]
+
+    # TODO: Add a start from date.
 
     habit = {
         "name": habit_name,
@@ -127,6 +144,7 @@ async def add_habit(interaction: discord.Interaction, habit_name: str, repeat: T
         "user_id": user.id,
         "channel_id": interaction.channel.id,
         "has_checked_in": False,
+        "streak": 0,
         "check_ins": [],
         "due_date": repeat.next_timing(datetime.now()),
         "created_at": interaction.created_at,
@@ -152,12 +170,14 @@ async def list_habits(interaction: discord.Interaction):
             await interaction.response.send_message("You have no habits.")
             return
         else:
-            joined_habits = ", ".join([f"\"{habit['name']}\", repeating {Timing(habit['repeat']).name}\n" for habit in habits_list])
+            joined_habits = ", ".join([f"\"{habit['name']}\", repeating {
+                                      Timing(habit['repeat']).name}\n" for habit in habits_list])
 
             await interaction.response.send_message(f"Your habits are: \n{joined_habits}")
     except Exception as e:
         print(e)
         await interaction.response.send_message(f"Error: Couldn't list habits from the database.")
+
 
 @client.tree.command()
 @app_commands.describe(
@@ -169,26 +189,31 @@ async def check_in(interaction: discord.Interaction, habit_name: str):
     habit_collection = user_db["habits"]
 
     try:
-        habit = habit_collection.find_one({"name": habit_name, "user_id": user.id})
+        habit = habit_collection.find_one(
+            {"name": habit_name, "user_id": user.id})
         if habit is None:
             await interaction.response.send_message(f"You are not doing {habit_name}.")
         else:
             # has already checked in for the repeat cycle
             if habit["has_checked_in"]:
                 await interaction.response.send_message(f"You have already checked in for {habit_name}.")
-                
+
             else:
                 habit_collection.update_one({"name": habit_name, "user_id": user.id}, {"$set": {
                     "check_ins": habit["check_ins"] + [datetime.now()],
                     "has_checked_in": True
-                }})
+                }, "$inc": {"streak": 1}})
+
+                # Add check in streaks.
 
                 await interaction.response.send_message(f"Successfully checked in for {habit_name}.")
+                if habit["streak"] > 0 and habit["streak"] % 5 == 0:
+                    await interaction.response.send_message(f"You reached a streak of {habit['streak']} for {habit_name} 🔥.")
 
-            
     except Exception as e:
         print(e)
         await interaction.response.send_message(f"Error: Couldn't check in.")
+
 
 @client.tree.command()
 @app_commands.describe(
@@ -205,5 +230,5 @@ async def remove_habit(interaction: discord.Interaction, habit_name: str):
         print(e)
         await interaction.response.send_message(f"Error: Couldn't remove habit from the database.")
 
-    
+
 client.run(os.environ['DISCORD_TOKEN'])
