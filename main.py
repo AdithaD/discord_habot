@@ -95,6 +95,13 @@ class HabotClient(discord.Client):
     async def before_my_task(self):
         await self.wait_until_ready()
 
+    async def habit_autocomplete(self, interaction: discord.Interaction, current: str):
+        habits = list(user_db["habits"].find({"user_id": interaction.user.id}))
+
+        names = [habit["name"] for habit in habits]
+
+        return [app_commands.Choice(name=name, value=name) for name in names if name.startswith(current)]
+
 
 # establishes the connection to the database
 mongo_client = MongoClient(
@@ -173,8 +180,7 @@ async def list_habits(interaction: discord.Interaction):
             await interaction.response.send_message("You have no habits.")
             return
         else:
-            joined_habits = ", ".join([f"\"{habit['name']}\", repeating {
-                                      Timing(habit['repeat']).name}\n" for habit in habits_list])
+            joined_habits = ", ".join([f"\"{habit['name']}\", repeating {Timing(habit['repeat']).name}. Current streak is {habit['streak']}.\n" for habit in habits_list])
 
             await interaction.response.send_message(f"Your habits are: \n{joined_habits}")
     except Exception as e:
@@ -187,6 +193,7 @@ async def list_habits(interaction: discord.Interaction):
 @app_commands.describe(
     habit_name="The name of the habit",
 )
+@app_commands.autocomplete(habit_name=client.habit_autocomplete)
 async def check_in(interaction: discord.Interaction, habit_name: str):
     user = interaction.user
 
@@ -224,6 +231,7 @@ async def check_in(interaction: discord.Interaction, habit_name: str):
 @app_commands.describe(
     habit_name="The name of the habit",
 )
+@app_commands.autocomplete(habit_name=client.habit_autocomplete)
 async def remove_habit(interaction: discord.Interaction, habit_name: str):
     user = interaction.user
     habit_collection = user_db["habits"]
