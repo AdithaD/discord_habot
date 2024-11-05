@@ -123,9 +123,10 @@ async def on_ready():
 @client.tree.command()
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message('Pong!')
-
-
-@client.tree.command()
+    
+@client.tree.command(
+    description="Start tracking a new habit"
+)
 @app_commands.describe(
     habit_name="The name of the habit",
     repeat="How often to do the habit",
@@ -158,7 +159,9 @@ async def add_habit(interaction: discord.Interaction, habit_name: str, repeat: T
         await interaction.response.send_message(f"Error: Couldn't add habit to the database.")
 
 
-@client.tree.command()
+@client.tree.command(
+        description="List all your habits"
+)
 async def list_habits(interaction: discord.Interaction):
     user = interaction.user
     habit_collection = user_db["habits"]
@@ -178,8 +181,9 @@ async def list_habits(interaction: discord.Interaction):
         print(e)
         await interaction.response.send_message(f"Error: Couldn't list habits from the database.")
 
-
-@client.tree.command()
+@client.tree.command(
+    description="Check in for a habit"
+)
 @app_commands.describe(
     habit_name="The name of the habit",
 )
@@ -214,8 +218,9 @@ async def check_in(interaction: discord.Interaction, habit_name: str):
         print(e)
         await interaction.response.send_message(f"Error: Couldn't check in.")
 
-
-@client.tree.command()
+@client.tree.command(
+        description="Remove a habit. Cannot be undone.",
+        )
 @app_commands.describe(
     habit_name="The name of the habit",
 )
